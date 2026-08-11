@@ -26,6 +26,8 @@ const CRITERIA_LIST = [
   "Penerbitan",
   "Biaya Keamanan",
   "Biaya Pemeliharaan Gedung",
+  "Operasional",
+  "Lain-Lain",
   "Pemasukan Kas"
 ];
 
