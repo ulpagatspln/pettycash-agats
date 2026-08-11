@@ -32,7 +32,7 @@ const CRITERIA_LIST = [
 ];
 
 const PETUGAS_MAP = { 'Ade': 'Cash Card', 'Satria': 'Taktis', 'Herry': 'Lisdes' };
-const WALLETS = ['Ade / Cash Card', 'Satria / Taktis', 'Herry / Lisdes'];
+const WALLETS = ['Cash Card', 'Taktis', 'Lisdes'];
 
 const INITIAL_FORM_STATE = {
   id: '',
