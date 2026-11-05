@@ -94,6 +94,9 @@ export default function PettyCashApp() {
   const [editModal, setEditModal] = useState({ show: false, data: null });
   const [receiptPreview, setReceiptPreview] = useState({ show: false, dataUrl: null });
   const [hideBalance, setHideBalance] = useState(false);
+  // Foto di jendela edit: url = yang ditampilkan, newPhoto = foto baru yang belum disimpan
+  const [editReceipt, setEditReceipt] = useState({ url: null, newPhoto: null, isLoading: false, error: false });
+  const editFileInputRef = useRef(null);
 
   const currentDate = new Date();
   const [filterMonth, setFilterMonth] = useState(currentDate.getMonth() + 1);
@@ -124,6 +127,34 @@ export default function PettyCashApp() {
   }, [isLoggedIn]);
 
   useEffect(() => { setCurrentPage(1); }, [filterMonth, filterYear, activeTab, searchQuery]);
+
+  // Muat foto yang sudah ada saat jendela edit dibuka
+  const editingTransaction = editModal.show ? editModal.data : null;
+  const editingId = editingTransaction?.id;
+  useEffect(() => {
+    if (!editingId) {
+      setEditReceipt({ url: null, newPhoto: null, isLoading: false, error: false });
+      return undefined;
+    }
+    const { hasReceipt, receiptUrl } = editingTransaction;
+    if (typeof receiptUrl === 'string' && receiptUrl.startsWith('http')) {
+      setEditReceipt({ url: receiptUrl, newPhoto: null, isLoading: false, error: false });
+      return undefined;
+    }
+    if (!hasReceipt) {
+      setEditReceipt({ url: null, newPhoto: null, isLoading: false, error: false });
+      return undefined;
+    }
+    let cancelled = false;
+    setEditReceipt({ url: null, newPhoto: null, isLoading: true, error: false });
+    fetchReceipt(editingId)
+      .then(url => { if (!cancelled) setEditReceipt(prev => ({ ...prev, url, isLoading: false })); })
+      .catch(error => {
+        console.error("Gagal memuat foto:", error);
+        if (!cancelled) setEditReceipt(prev => ({ ...prev, isLoading: false, error: true }));
+      });
+    return () => { cancelled = true; };
+  }, [editingId]);
 
   const authErrorMessage = (error) => {
     if (error.code === 'auth/too-many-requests') return 'Terlalu banyak percobaan. Coba lagi nanti.';
@@ -275,7 +306,23 @@ export default function PettyCashApp() {
     processSubmit();
   };
 
-  const handleEditSubmit = (e) => {
+  const handleEditPhoto = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      setIsScanning(true);
+      const newPhoto = await compressImage(file);
+      setEditReceipt(prev => ({ ...prev, newPhoto, error: false }));
+    } catch (error) {
+      console.error("Gagal memproses foto:", error);
+      showToast("Gagal memproses gambar.", "error");
+    } finally {
+      setIsScanning(false);
+      if (editFileInputRef.current) editFileInputRef.current.value = '';
+    }
+  };
+
+  const handleEditSubmit = async (e) => {
     e.preventDefault();
     const updatedData = {
       ...editModal.data,
@@ -283,8 +330,13 @@ export default function PettyCashApp() {
       criteria: editModal.data.type === 'Pemasukan' ? 'Pemasukan Kas' : editModal.data.criteria,
       timestamp: new Date().toISOString()
     };
-    handleAction('edit', updatedData, "Transaksi diperbarui!");
-    setEditModal({ show: false, data: null });
+    if (editReceipt.newPhoto) {
+      updatedData.hasReceipt = true;
+      updatedData.receiptUrl = ''; // Foto baru menggantikan link ImgBB lama, kalau ada
+    }
+    const saved = await handleAction('edit', updatedData, "Transaksi diperbarui!", editReceipt.newPhoto);
+    // Jendela tetap terbuka kalau gagal, supaya isian dan foto baru tidak hilang
+    if (saved) setEditModal({ show: false, data: null });
   };
 
   const confirmDelete = () => {
@@ -593,6 +645,10 @@ export default function PettyCashApp() {
   const receiptButton = (t) => hasReceipt(t) ? (
     <button onClick={() => openReceipt(t)} aria-label={`Lihat kwitansi ${t.description}`} title="Lihat foto kwitansi" className="icon-btn !w-10 !h-10 !bg-lime/10 text-lime hover:!bg-lime/20">
       <ImageIcon className="w-4 h-4" />
+    </button>
+  ) : t.type === 'Pengeluaran' ? (
+    <button onClick={() => triggerProtectedAction('edit', t)} aria-label={`Tambah foto kwitansi ${t.description}`} title="Tambah foto kwitansi" className="icon-btn !w-10 !h-10 !bg-transparent hover:!bg-raised text-muted hover:text-fg">
+      <Camera className="w-4 h-4" />
     </button>
   ) : null;
 
@@ -1030,9 +1086,39 @@ export default function PettyCashApp() {
             )}
             <Field label="Uraian / keterangan" htmlFor="edit-description"><input id="edit-description" type="text" required value={editModal.data.description} onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, description: e.target.value } })} className="input" /></Field>
             <Field label="Nominal (Rp)" htmlFor="edit-amount"><MoneyInput id="edit-amount" required value={editModal.data.amount} onChange={amount => setEditModal({ ...editModal, data: { ...editModal.data, amount } })} className="input tabular !text-base font-bold" /></Field>
+
+            {(editModal.data.type === 'Pengeluaran' || editReceipt.url || editReceipt.newPhoto) && (
+              <div>
+                <p className="text-xs font-semibold text-muted mb-2">Foto kwitansi</p>
+                <input type="file" accept="image/*" ref={editFileInputRef} onChange={handleEditPhoto} className="hidden" />
+                <div className="flex items-center gap-3 p-3 bg-raised rounded-2xl">
+                  {editReceipt.newPhoto || editReceipt.url ? (
+                    <button type="button" onClick={() => setReceiptPreview({ show: true, dataUrl: editReceipt.newPhoto || editReceipt.url })} aria-label="Perbesar foto kwitansi" className="flex-none rounded-xl overflow-hidden">
+                      <img src={editReceipt.newPhoto || editReceipt.url} alt="Foto kwitansi" className="w-14 h-14 object-cover" />
+                    </button>
+                  ) : (
+                    <span className="w-14 h-14 flex-none rounded-xl bg-white/5 flex items-center justify-center text-faint">
+                      {editReceipt.isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ImageIcon className="w-5 h-5" />}
+                    </span>
+                  )}
+                  <p className="flex-1 min-w-0 text-xs text-muted">
+                    {editReceipt.newPhoto ? 'Foto baru tersimpan setelah Anda klik Simpan perubahan.'
+                      : editReceipt.isLoading ? 'Memuat foto...'
+                      : editReceipt.error ? 'Foto gagal dimuat. Anda tetap bisa menggantinya.'
+                      : editReceipt.url ? 'Foto tersimpan.'
+                      : 'Belum ada foto.'}
+                  </p>
+                  <button type="button" onClick={() => editFileInputRef.current?.click()} disabled={isScanning} className="btn-quiet !min-h-11 !px-3.5 flex-none !bg-white/10 hover:!bg-white/15 disabled:opacity-60">
+                    {isScanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4 text-lime" />}
+                    {editReceipt.url || editReceipt.newPhoto || editReceipt.error ? 'Ganti' : 'Tambah'}
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-2.5 pt-2">
               <button type="button" onClick={() => setEditModal({ show: false, data: null })} className="btn-quiet">Batal</button>
-              <button type="submit" disabled={isLoading} className="btn-primary !min-h-12 !text-sm">
+              <button type="submit" disabled={isLoading || isScanning || editReceipt.isLoading} className="btn-primary !min-h-12 !text-sm">
                 {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Simpan perubahan'}
               </button>
             </div>
