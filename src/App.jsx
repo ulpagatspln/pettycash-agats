@@ -9,7 +9,11 @@ import {
   Download, Printer, LogOut, Eye, EyeOff, ShieldCheck
 } from 'lucide-react';
 
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxnH52D3refqCMgu0gWnGeHej1QnR5bOnGEKYpu7ChRZTwy7qPKNPqRT4C-TaXL8XSr/exec';
+import {
+  fetchAllTransactions, saveTransaction, removeTransaction,
+  subscribeAuth, login, logout, confirmPassword
+} from './firebase';
+
 const IMGBB_API_KEY = '5b61e2501a3eb730c451da7eb318a032';
 
 const CRITERIA_LIST = [
@@ -49,6 +53,7 @@ const INITIAL_FORM_STATE = {
 export default function PettyCashApp() {
   // Login State
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isAuthReady, setIsAuthReady] = useState(false);
   const [loginData, setLoginData] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -88,30 +93,48 @@ export default function PettyCashApp() {
 
   const years = Array.from({ length: 5 }, (_, i) => currentDate.getFullYear() - 2 + i);
 
+  useEffect(() => subscribeAuth((user) => {
+    setIsLoggedIn(!!user);
+    setIsAuthReady(true);
+    if (!user) {
+      setIsAuthorized(false);
+      setTransactions([]);
+    }
+  }), []);
+
   useEffect(() => {
     if (isLoggedIn) fetchTransactions();
   }, [isLoggedIn]);
 
   useEffect(() => { setCurrentPage(1); }, [filterMonth, filterYear, activeTab, searchQuery]);
 
-  const handleLogin = (e) => {
+  const authErrorMessage = (error) => {
+    if (error.code === 'auth/too-many-requests') return 'Terlalu banyak percobaan. Coba lagi nanti.';
+    if (error.code === 'auth/network-request-failed') return 'Koneksi gagal. Periksa jaringan Anda.';
+    return 'Username atau password salah.';
+  };
+
+  const handleLogin = async (e) => {
     e.preventDefault();
     setIsLoggingIn(true);
     setLoginError('');
-    // Simulasi loading sebentar agar terasa profesional
-    setTimeout(() => {
-      if (loginData.username === 'admin' && loginData.password === 'admin') {
-        setIsLoggedIn(true);
-      } else {
-        setLoginError('Username atau password salah.');
-      }
+    try {
+      await login(loginData.username, loginData.password);
+      setLoginData({ username: '', password: '' });
+    } catch (error) {
+      setLoginError(authErrorMessage(error));
+    } finally {
       setIsLoggingIn(false);
-    }, 800);
+    }
   };
 
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    setLoginData({ username: '', password: '' });
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (error) {
+      console.error("Gagal keluar:", error);
+      showToast("Gagal keluar. Periksa jaringan Anda.", "error");
+    }
   };
 
   const showToast = (message, type = 'success') => {
@@ -122,12 +145,7 @@ export default function PettyCashApp() {
   const fetchTransactions = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(SCRIPT_URL);
-      if (!response.ok) throw new Error("Network error");
-      const text = await response.text();
-      let data;
-      try { data = JSON.parse(text); } catch (e) { throw new Error("Invalid format"); }
-
+      const data = await fetchAllTransactions();
       const parsedData = data.map(t => ({
         ...t, id: t.id.toString(), amount: parseFloat(t.amount)
       }));
@@ -143,17 +161,10 @@ export default function PettyCashApp() {
   const handleAction = async (action, data, successMessage) => {
     setIsLoading(true);
     try {
-      const response = await fetch(SCRIPT_URL, {
-        method: 'POST',
-        body: JSON.stringify({ action, data }),
-      });
-      const result = await response.json();
-      if (result.status === 'success') {
-        showToast(successMessage, "success");
-        await fetchTransactions();
-      } else {
-        throw new Error(result.message || 'Unknown error');
-      }
+      if (action === 'delete') await removeTransaction(data.id);
+      else await saveTransaction(data); // 'add' dan 'edit'
+      showToast(successMessage, "success");
+      await fetchTransactions();
     } catch (error) {
       console.error(`Gagal ${action}:`, error);
       showToast(`Gagal: ${error.message}`, "error");
@@ -200,17 +211,18 @@ export default function PettyCashApp() {
     }
   };
 
-  const handleAuthSubmit = (e) => {
+  const handleAuthSubmit = async (e) => {
     e.preventDefault();
-    if (authModal.password === 'Agats@123') {
+    try {
+      await confirmPassword(authModal.password);
       setIsAuthorized(true);
       const { pendingAction, data, id } = authModal;
       setAuthModal({ show: false, pendingAction: null, data: null, id: null, password: '', error: '' });
       if (pendingAction === 'edit') setEditModal({ show: true, data });
       if (pendingAction === 'delete') setDeleteModal({ show: true, id });
       showToast("Akses diizinkan!", "success");
-    } else {
-      setAuthModal(prev => ({ ...prev, error: 'Password salah!' }));
+    } catch (error) {
+      setAuthModal(prev => ({ ...prev, error: authErrorMessage(error) }));
     }
   };
 
@@ -442,6 +454,14 @@ export default function PettyCashApp() {
     setTimeout(() => { printWindow.print(); printWindow.close(); }, 300);
   };
 
+  if (!isAuthReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-teal-800 via-teal-700 to-teal-900">
+        <Loader2 className="w-8 h-8 text-white animate-spin" />
+      </div>
+    );
+  }
+
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-teal-800 via-teal-700 to-teal-900 p-4">
@@ -461,6 +481,7 @@ export default function PettyCashApp() {
                 <input
                   type="text"
                   required
+                  autoComplete="username"
                   value={loginData.username}
                   onChange={e => setLoginData({ ...loginData, username: e.target.value })}
                   className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-teal-500 focus:bg-white outline-none transition-all"
@@ -941,7 +962,7 @@ export default function PettyCashApp() {
           <div className="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-8 text-center">
             <div className="w-16 h-16 bg-amber-100 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-inner border border-amber-200"><KeyRound className="w-8 h-8 text-amber-600" /></div>
             <h3 className="text-xl font-bold text-slate-800 mb-2">Otorisasi Diperlukan</h3>
-            <p className="text-slate-500 text-sm mb-6 font-medium">Masukkan sandi khusus untuk mengubah data.</p>
+            <p className="text-slate-500 text-sm mb-6 font-medium">Masukkan password akun Anda untuk mengubah data.</p>
             <form onSubmit={handleAuthSubmit}>
               <input type="password" autoFocus placeholder="••••••••" value={authModal.password} onChange={e => setAuthModal({ ...authModal, password: e.target.value, error: '' })} className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none text-center mb-2 font-bold tracking-widest text-lg" />
               {authModal.error && <p className="text-rose-500 text-xs font-bold mb-4">{authModal.error}</p>}

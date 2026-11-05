@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Hanya pengguna yang login yang boleh membaca dan mengubah transaksi.
+    // Matikan pendaftaran mandiri di Authentication > Settings > User actions,
+    // supaya akun hanya bisa dibuat oleh admin lewat Firebase Console.
+    match /transactions/{id} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
