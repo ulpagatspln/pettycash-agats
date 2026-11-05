@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import {
-  getFirestore, collection, getDocs, doc, setDoc, deleteDoc,
+  getFirestore, collection, getDocs, getDoc, doc, writeBatch,
 } from 'firebase/firestore';
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut,
@@ -22,6 +22,7 @@ export const db = getFirestore(app);
 const auth = getAuth(app);
 
 const COLLECTION = 'transactions';
+const RECEIPTS = 'receipts';
 
 export const subscribeAuth = (callback) => onAuthStateChanged(auth, callback);
 export const login = (username, password) =>
@@ -39,12 +40,24 @@ export async function fetchAllTransactions() {
   return snap.docs.map(d => ({ ...d.data(), id: d.id }));
 }
 
-// Dipakai untuk tambah & edit (id dokumen = id transaksi)
-export async function saveTransaction(data) {
+// Dipakai untuk tambah & edit (id dokumen = id transaksi).
+// Foto disimpan di koleksi terpisah supaya daftar transaksi tetap ringan dimuat.
+export async function saveTransaction(data, receiptDataUrl) {
   const { id, ...rest } = data;
-  await setDoc(doc(db, COLLECTION, String(id)), rest, { merge: true });
+  const batch = writeBatch(db);
+  batch.set(doc(db, COLLECTION, String(id)), rest, { merge: true });
+  if (receiptDataUrl) batch.set(doc(db, RECEIPTS, String(id)), { dataUrl: receiptDataUrl });
+  await batch.commit();
 }
 
 export async function removeTransaction(id) {
-  await deleteDoc(doc(db, COLLECTION, String(id)));
+  const batch = writeBatch(db);
+  batch.delete(doc(db, COLLECTION, String(id)));
+  batch.delete(doc(db, RECEIPTS, String(id)));
+  await batch.commit();
+}
+
+export async function fetchReceipt(id) {
+  const snap = await getDoc(doc(db, RECEIPTS, String(id)));
+  return snap.exists() ? snap.data().dataUrl : null;
 }

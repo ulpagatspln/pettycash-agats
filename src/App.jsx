@@ -11,10 +11,9 @@ import {
 
 import {
   fetchAllTransactions, saveTransaction, removeTransaction,
-  subscribeAuth, login, logout, confirmPassword
+  subscribeAuth, login, logout, confirmPassword, fetchReceipt
 } from './firebase';
-
-const IMGBB_API_KEY = '5b61e2501a3eb730c451da7eb318a032';
+import { compressImage } from './compressImage';
 
 const CRITERIA_LIST = [
   "Pemeliharaan kendaraan bermotor, bahan bakar kendaraan bermotor, dan biaya tol",
@@ -158,41 +157,39 @@ export default function PettyCashApp() {
     }
   };
 
-  const handleAction = async (action, data, successMessage) => {
+  const handleAction = async (action, data, successMessage, receiptDataUrl) => {
     setIsLoading(true);
     try {
       if (action === 'delete') await removeTransaction(data.id);
-      else await saveTransaction(data); // 'add' dan 'edit'
+      else await saveTransaction(data, receiptDataUrl); // 'add' dan 'edit'
       showToast(successMessage, "success");
       await fetchTransactions();
+      return true;
     } catch (error) {
       console.error(`Gagal ${action}:`, error);
       showToast(`Gagal: ${error.message}`, "error");
+      return false;
     } finally {
       setIsLoading(false);
     }
   };
 
-  const compressImage = (file) => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = (e) => {
-        const img = new Image();
-        img.src = e.target.result;
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 1000; const MAX_HEIGHT = 1000;
-          let width = img.width; let height = img.height;
-          if (width > height) { if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; } }
-          else { if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; } }
-          canvas.width = width; canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.8));
-        };
-      };
-    });
+  const openReceipt = async (t) => {
+    if (typeof t.receiptUrl === 'string' && t.receiptUrl.startsWith('http')) {
+      setReceiptPreview({ show: true, dataUrl: t.receiptUrl });
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const dataUrl = await fetchReceipt(t.id);
+      if (dataUrl) setReceiptPreview({ show: true, dataUrl });
+      else showToast("Foto kwitansi tidak ditemukan.", "error");
+    } catch (error) {
+      console.error("Gagal memuat foto:", error);
+      showToast("Gagal memuat foto kwitansi.", "error");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleScanReceipt = async (e) => {
@@ -242,46 +239,20 @@ export default function PettyCashApp() {
     if (!form.description || !form.amount) { showToast("Harap isi uraian dan nominal!", "error"); return; }
 
     const processSubmit = async () => {
-      setIsLoading(true);
-      let uploadedImageUrl = '';
-
-      if (form.receiptBase64) {
-        showToast("Mengunggah kwitansi ke server...", "success");
-        try {
-          const b64Data = form.receiptBase64.split(',')[1];
-          const formData = new FormData();
-          formData.append('image', b64Data);
-
-          const response = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
-            method: 'POST',
-            body: formData
-          });
-
-          const data = await response.json();
-          if (data.success) {
-            uploadedImageUrl = data.data.url;
-          } else {
-            showToast("Gagal unggah foto. Data disimpan tanpa foto.", "error");
-          }
-        } catch (error) {
-          console.error("Upload Error:", error);
-          showToast("Gagal unggah foto.", "error");
-        }
-      }
-
       const newTransaction = {
         ...form,
         id: Date.now().toString(),
         amount: parseFloat(form.amount),
         criteria: form.type === 'Pemasukan' ? 'Pemasukan Kas' : form.criteria,
         timestamp: new Date().toISOString(),
-        receiptUrl: uploadedImageUrl
+        hasReceipt: !!form.receiptBase64
       };
 
       delete newTransaction.receiptBase64;
 
-      await handleAction('add', newTransaction, "Transaksi berhasil disimpan!");
-      setForm(prev => ({ ...INITIAL_FORM_STATE, petugas: prev.petugas, wallet: prev.wallet }));
+      const saved = await handleAction('add', newTransaction, "Transaksi berhasil disimpan!", form.receiptBase64);
+      // Form dan foto tetap ada kalau gagal, supaya tidak perlu mengisi ulang
+      if (saved) setForm(prev => ({ ...INITIAL_FORM_STATE, petugas: prev.petugas, wallet: prev.wallet }));
     };
 
     processSubmit();
@@ -775,9 +746,9 @@ export default function PettyCashApp() {
                               )}
                             </td>
                             <td className="px-5 py-4 text-center">
-                              {t.receiptUrl && typeof t.receiptUrl === 'string' && t.receiptUrl.startsWith('http') ? (
+                              {t.hasReceipt || (typeof t.receiptUrl === 'string' && t.receiptUrl.startsWith('http')) ? (
                                 <button
-                                  onClick={() => setReceiptPreview({ show: true, dataUrl: t.receiptUrl })}
+                                  onClick={() => openReceipt(t)}
                                   className="inline-flex p-2 text-teal-600 bg-teal-50 hover:bg-teal-100 hover:text-teal-700 rounded-xl border border-teal-200 transition-colors shadow-sm active:scale-95"
                                   title="Lihat Foto Kwitansi">
                                   <ImageIcon className="w-4 h-4" />
@@ -1043,7 +1014,9 @@ export default function PettyCashApp() {
             <div className="flex justify-between items-center p-5 border-b border-slate-200 bg-white">
               <h3 className="font-bold text-slate-800 flex items-center gap-2"><ImageIcon className="w-5 h-5 text-teal-600" /> Preview Dokumen</h3>
               <div className="flex items-center gap-2">
-                <a href={receiptPreview.dataUrl} target="_blank" rel="noreferrer" className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-full transition-colors" title="Buka di Tab Baru"><LinkIcon className="w-5 h-5" /></a>
+                {receiptPreview.dataUrl?.startsWith('http') && (
+                  <a href={receiptPreview.dataUrl} target="_blank" rel="noreferrer" className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-full transition-colors" title="Buka di Tab Baru"><LinkIcon className="w-5 h-5" /></a>
+                )}
                 <button onClick={() => setReceiptPreview({ show: false, dataUrl: null })} className="p-2 bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800 rounded-full transition-colors"><X className="w-5 h-5" /></button>
               </div>
             </div>

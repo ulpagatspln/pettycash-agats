@@ -2,10 +2,16 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // Hanya pengguna yang login yang boleh membaca dan mengubah transaksi.
-    // Matikan pendaftaran mandiri di Authentication > Settings > User actions,
-    // supaya akun hanya bisa dibuat oleh admin lewat Firebase Console.
     match /transactions/{id} {
       allow read, write: if request.auth != null;
+    }
+
+    // Foto kwitansi: wajib login, ukuran teks foto dibatasi sekitar 375 KB.
+    match /receipts/{id} {
+      allow read, delete: if request.auth != null;
+      allow create, update: if request.auth != null
+        && request.resource.data.dataUrl is string
+        && request.resource.data.dataUrl.size() < 500000;
     }
   }
 }
