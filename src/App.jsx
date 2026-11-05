@@ -8,7 +8,7 @@ import {
   Download, Printer, LogOut, Eye, EyeOff, ShieldCheck,
   CreditCard, Target, Zap, ArrowUpRight, ArrowDownLeft, Percent
 } from 'lucide-react';
-import { Field, Segmented, Modal, StatTile } from './ui';
+import { Field, Segmented, Modal, StatTile, MoneyInput } from './ui';
 import MonthlyTrend from './MonthlyTrend';
 
 import {
@@ -683,7 +683,7 @@ export default function PettyCashApp() {
                   <label htmlFor="amount" className="block text-xs font-semibold text-muted mb-2">Nominal</label>
                   <div className="flex items-baseline gap-2 px-4 py-3 bg-raised rounded-2xl border border-transparent focus-within:border-lime transition-colors">
                     <span className="text-xl font-bold text-faint">Rp</span>
-                    <input id="amount" type="number" inputMode="decimal" required min="0" placeholder="0" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} className="tabular w-full min-w-0 bg-transparent text-[28px] font-bold tracking-tight outline-none placeholder:text-faint" />
+                    <MoneyInput id="amount" required placeholder="0" value={form.amount} onChange={amount => setForm({ ...form, amount })} className="tabular w-full min-w-0 bg-transparent text-[28px] font-bold tracking-tight outline-none placeholder:text-faint" />
                   </div>
                 </div>
 
@@ -1027,7 +1027,7 @@ export default function PettyCashApp() {
               </Field>
             )}
             <Field label="Uraian / keterangan" htmlFor="edit-description"><input id="edit-description" type="text" required value={editModal.data.description} onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, description: e.target.value } })} className="input" /></Field>
-            <Field label="Nominal (Rp)" htmlFor="edit-amount"><input id="edit-amount" type="number" inputMode="decimal" required min="0" value={editModal.data.amount} onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, amount: e.target.value } })} className="input tabular !text-base font-bold" /></Field>
+            <Field label="Nominal (Rp)" htmlFor="edit-amount"><MoneyInput id="edit-amount" required value={editModal.data.amount} onChange={amount => setEditModal({ ...editModal, data: { ...editModal.data, amount } })} className="input tabular !text-base font-bold" /></Field>
             <div className="grid grid-cols-2 gap-2.5 pt-2">
               <button type="button" onClick={() => setEditModal({ show: false, data: null })} className="btn-quiet">Batal</button>
               <button type="submit" disabled={isLoading} className="btn-primary !min-h-12 !text-sm">

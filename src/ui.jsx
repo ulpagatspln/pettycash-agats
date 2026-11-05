@@ -1,5 +1,64 @@
-import React from 'react';
+import React, { useLayoutEffect, useRef } from 'react';
 import { X } from 'lucide-react';
+
+// Tampilan "1.500.000,5" dari nilai tersimpan "1500000.5"
+const toDisplay = (raw) => {
+  const [whole, decimal] = String(raw ?? '').split('.');
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return decimal === undefined ? grouped : `${grouped},${decimal}`;
+};
+
+const toRaw = (text) => {
+  const cleaned = text.replace(/[^\d,]/g, '');
+  const commaAt = cleaned.indexOf(',');
+  const whole = (commaAt === -1 ? cleaned : cleaned.slice(0, commaAt)).replace(/^0+(?=\d)/, '');
+  if (commaAt === -1) return whole;
+  return `${whole || '0'}.${cleaned.slice(commaAt + 1).replace(/,/g, '')}`;
+};
+
+// Input nominal: titik ribuan muncul saat mengetik, nilai ke onChange tetap angka polos
+export function MoneyInput({ value, onChange, ...props }) {
+  const inputRef = useRef(null);
+  const charsAfterCaret = useRef(null);
+
+  // Titik yang bertambah/berkurang tidak boleh menggeser posisi kursor
+  useLayoutEffect(() => {
+    if (charsAfterCaret.current === null || !inputRef.current) return;
+    const text = inputRef.current.value;
+    let position = text.length;
+    let remaining = charsAfterCaret.current;
+    while (position > 0 && remaining > 0) {
+      position -= 1;
+      if (text[position] !== '.') remaining -= 1;
+    }
+    inputRef.current.setSelectionRange(position, position);
+    charsAfterCaret.current = null;
+  });
+
+  const handleChange = (e) => {
+    const { value: typed, selectionStart: caret } = e.target;
+    const previous = toDisplay(value);
+    let text = typed;
+    let after = typed.slice(caret);
+
+    // Yang terhapus hanya titik: hapus angka di sebelahnya supaya tombol hapus tidak terasa macet.
+    // Dicek di sini, bukan di keydown, karena keyboard ponsel tidak melaporkan nama tombolnya.
+    const removedOnlyDot = typed.length === previous.length - 1 && previous[caret] === '.' && toRaw(typed) === toRaw(previous);
+    if (removedOnlyDot) {
+      if (e.nativeEvent.inputType === 'deleteContentForward') {
+        after = typed.slice(caret + 1);
+        text = typed.slice(0, caret) + after;
+      } else {
+        text = typed.slice(0, Math.max(caret - 1, 0)) + after;
+      }
+    }
+
+    charsAfterCaret.current = after.replace(/[^\d,]/g, '').length;
+    onChange(toRaw(text));
+  };
+
+  return <input {...props} ref={inputRef} type="text" inputMode="numeric" autoComplete="off" value={toDisplay(value)} onChange={handleChange} />;
+}
 
 export function Field({ label, htmlFor, children }) {
   return (
