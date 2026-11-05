@@ -13,9 +13,12 @@ import MonthlyTrend from './MonthlyTrend';
 
 import {
   fetchAllTransactions, saveTransaction, removeTransaction,
-  subscribeAuth, login, logout, confirmPassword, fetchReceipt
+  subscribeAuth, login, logout, fetchReceipt
 } from './firebase';
 import { compressImage } from './compressImage';
+
+// Hanya mencegah salah edit lewat aplikasi; dicek di browser, bukan pengaman database.
+const EDIT_PASSWORD = 'Agats@123';
 
 const CRITERIA_LIST = [
   "Pemeliharaan kendaraan bermotor, bahan bakar kendaraan bermotor, dan biaya tol",
@@ -223,19 +226,18 @@ export default function PettyCashApp() {
     }
   };
 
-  const handleAuthSubmit = async (e) => {
+  const handleAuthSubmit = (e) => {
     e.preventDefault();
-    try {
-      await confirmPassword(authModal.password);
-      setIsAuthorized(true);
-      const { pendingAction, data, id } = authModal;
-      setAuthModal({ show: false, pendingAction: null, data: null, id: null, password: '', error: '' });
-      if (pendingAction === 'edit') setEditModal({ show: true, data });
-      if (pendingAction === 'delete') setDeleteModal({ show: true, id });
-      showToast("Akses diizinkan!", "success");
-    } catch (error) {
-      setAuthModal(prev => ({ ...prev, error: authErrorMessage(error) }));
+    if (authModal.password !== EDIT_PASSWORD) {
+      setAuthModal(prev => ({ ...prev, error: 'Sandi salah.' }));
+      return;
     }
+    setIsAuthorized(true);
+    const { pendingAction, data, id } = authModal;
+    setAuthModal({ show: false, pendingAction: null, data: null, id: null, password: '', error: '' });
+    if (pendingAction === 'edit') setEditModal({ show: true, data });
+    if (pendingAction === 'delete') setDeleteModal({ show: true, id });
+    showToast("Akses diizinkan!", "success");
   };
 
   const triggerProtectedAction = (action, item) => {
@@ -983,9 +985,9 @@ export default function PettyCashApp() {
       {authModal.show && (
         <Modal title="Otorisasi diperlukan" size="max-w-sm" onClose={() => setAuthModal({ show: false, pendingAction: null, data: null, id: null, password: '', error: '' })}>
           <div className="w-12 h-12 rounded-2xl bg-lime/15 text-lime flex items-center justify-center"><KeyRound className="w-6 h-6" /></div>
-          <p className="mt-4 text-sm text-muted">Masukkan password akun Anda untuk mengubah data.</p>
+          <p className="mt-4 text-sm text-muted">Masukkan sandi khusus untuk mengubah data.</p>
           <form onSubmit={handleAuthSubmit} className="mt-4">
-            <input type="password" autoFocus aria-label="Password" placeholder="••••••••" value={authModal.password} onChange={e => setAuthModal({ ...authModal, password: e.target.value, error: '' })} className="input" />
+            <input type="password" autoFocus aria-label="Sandi khusus" placeholder="••••••••" value={authModal.password} onChange={e => setAuthModal({ ...authModal, password: e.target.value, error: '' })} className="input" />
             {authModal.error && <p role="alert" className="mt-2 text-xs font-semibold text-down">{authModal.error}</p>}
             <button type="submit" className="btn-primary w-full mt-5">Buka kunci</button>
           </form>

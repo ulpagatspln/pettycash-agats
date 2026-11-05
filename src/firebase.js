@@ -4,7 +4,6 @@ import {
 } from 'firebase/firestore';
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut,
-  reauthenticateWithCredential, EmailAuthProvider,
 } from 'firebase/auth';
 import { toFirebaseEmail, toFirebasePassword } from './loginAccount';
 
@@ -28,12 +27,6 @@ export const subscribeAuth = (callback) => onAuthStateChanged(auth, callback);
 export const login = (username, password) =>
   signInWithEmailAndPassword(auth, toFirebaseEmail(username), toFirebasePassword(password));
 export const logout = () => signOut(auth);
-
-// Minta ulang password pengguna yang sedang login sebelum edit/hapus
-export async function confirmPassword(password) {
-  const user = auth.currentUser;
-  await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, toFirebasePassword(password)));
-}
 
 export async function fetchAllTransactions() {
   const snap = await getDocs(collection(db, COLLECTION));
